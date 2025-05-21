@@ -1,6 +1,9 @@
 import { Telegraf, Markup } from 'telegraf';
 import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
+import express from 'express';
+
+
 
 dotenv.config();
 
@@ -8,6 +11,17 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHANNEL_USERNAME = process.env.CHANNEL_USERNAME;
 const GROUP_LINK = process.env.PRIVATE_GROUP_LINK;
 const MONGO_URI = process.env.MONGO_URI;
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('Bot is running');
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Express server listening on port ${PORT}`);
+});
 
 if (!BOT_TOKEN || !CHANNEL_USERNAME || !GROUP_LINK || !MONGO_URI) {
   console.error('Please set BOT_TOKEN, CHANNEL_USERNAME, PRIVATE_GROUP_LINK, and MONGO_URI in .env');
@@ -169,10 +183,23 @@ bot.action('get_access_link', async (ctx) => {
     await startDB();
     await bot.launch();
     console.log('🤖 Bot is running with secure referral system!');
+
+    // Start Express server for Render hosting
+    const app = express();
+    const PORT = process.env.PORT || 3000;
+
+    app.get('/', (req, res) => {
+      res.send('Bot is running');
+    });
+
+    app.listen(PORT, () => {
+      console.log(`🌐 Express server listening on port ${PORT}`);
+    });
+
   } catch (err) {
     console.error('❌ Failed to start bot:', err);
   }
-})();
+})();;
 
 process.once('SIGINT', () => {
   console.log('Stopping bot...');
