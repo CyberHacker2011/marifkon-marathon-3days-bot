@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, Markup } from 'telegraf';
 import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
 
@@ -17,40 +17,84 @@ if (!BOT_TOKEN || !CHANNEL_USERNAME || !GROUP_LINK || !MONGO_URI) {
 const bot = new Telegraf(BOT_TOKEN);
 const client = new MongoClient(MONGO_URI);
 
-let users; // MongoDB collection
+let users;
 
 async function startDB() {
   await client.connect();
   const db = client.db('marifkon');
   users = db.collection('users');
-  // Create unique index on id field for faster queries and no duplicates
   await users.createIndex({ id: 1 }, { unique: true });
   console.log('🗄️ Connected to MongoDB');
 }
 
 async function isSubscribed(ctx) {
   try {
-    const member = await ctx.telegram.getChatMember(CHANNEL_USERNAME, ctx.from.id);
+    const member = await ctx.telegram.getChatMember('@' + CHANNEL_USERNAME, ctx.from.id);
     return ['member', 'administrator', 'creator'].includes(member.status);
-  } catch {
+  } catch (err) {
+    console.error('❌ Subscription check failed:', err);
     return false;
   }
 }
 
-// Add or update user in DB, increment referral count for referrer
 async function addUser(id, referredBy = null) {
+  id = String(id);
+  if (referredBy) referredBy = String(referredBy);
+
   const user = await users.findOne({ id });
+
   if (!user) {
     await users.insertOne({ id, referrals: 0, rewarded: false, referredBy });
-    if (referredBy && referredBy !== id) {
-      await users.updateOne({ id: referredBy }, { $inc: { referrals: 1 } });
-    }
+  } else if (!user.referredBy && referredBy && referredBy !== id) {
+    await users.updateOne({ id }, { $set: { referredBy } });
   }
 }
 
-// Get user data from DB
-async function getUser(id) {
-  return await users.findOne({ id });
+async function refreshReferralStatus(userId) {
+  const count = await users.countDocuments({ referredBy: userId });
+  const user = await users.findOne({ id: userId });
+
+  if (!user.rewarded && count >= 3) {
+    await users.updateOne({ id: userId }, { $set: { rewarded: true } });
+  }
+
+  return { referralCount: count, rewarded: user.rewarded || count >= 3 };
+}
+
+function getReferralMessage(userId, referralCount, rewarded) {
+  const needed = Math.max(0, 3 - referralCount);
+  const username = bot.botInfo.username;
+  const myLink = `https://t.me/${username}?start=${userId}`;
+
+  let message = `
+<b>📣 Invite your friends to join Marifkon Marathon!</b>
+
+🔗 <b>Your Referral Link:</b>
+<a href="${myLink}">${myLink}</a>
+
+👥 <b>Referrals:</b> ${referralCount}
+🎯 <b>Need ${needed} more to unlock access</b>
+  `;
+
+  if (rewarded) {
+    message += `\n\n✅ <b>You already have access!</b>`;
+  }
+
+  return message;
+}
+
+async function sendReferralMessage(ctx, userId) {
+  const { referralCount, rewarded } = await refreshReferralStatus(userId);
+  const message = getReferralMessage(userId, referralCount, rewarded);
+
+  const buttons = rewarded
+    ? [[Markup.button.url('👉 Join Group', GROUP_LINK)]]
+    : [[Markup.button.url('👉 Participate', `https://t.me/${bot.botInfo.username}?start=${userId}`)]];
+
+  await ctx.reply(message, {
+    parse_mode: 'HTML',
+    ...Markup.inlineKeyboard(buttons),
+  });
 }
 
 bot.start(async (ctx) => {
@@ -59,74 +103,77 @@ bot.start(async (ctx) => {
 
   const subscribed = await isSubscribed(ctx);
   if (!subscribed) {
-    return ctx.reply(`Please join our channel first:\n👉 ${CHANNEL_USERNAME}`);
+    return ctx.reply(
+      `Please join our channel first to continue:\n\n📢 https://t.me/${CHANNEL_USERNAME}`,
+      Markup.inlineKeyboard([
+        [Markup.button.url('📢 Join Channel', `https://t.me/${CHANNEL_USERNAME}`)],
+        [Markup.button.callback('✅ I Subscribed', 'check_subscription')],
+      ])
+    );
   }
 
   await addUser(userId, refId);
+  await sendReferralMessage(ctx, userId);
+});
 
-  const user = await getUser(userId);
+bot.action('check_subscription', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const subscribed = await isSubscribed(ctx);
 
-  const referralCount = user.referrals || 0;
-  const needed = Math.max(0, 3 - referralCount);
-  const myLink = `https://t.me/${ctx.me}?start=${userId}`;
-
-  let message = `
-👋 Welcome to *Marifkon Marathon*!
-
-🔗 Your referral link:
-${myLink}
-
-📊 You have invited: *${referralCount}* friend(s).
-🎯 Invite *${needed}* more to unlock access to the private group.
-`;
-
-  if (referralCount >= 3 && !user.rewarded) {
-    await users.updateOne({ id: userId }, { $set: { rewarded: true } });
-    message += `\n✅ MashaAllah! You unlocked the lessons group:\n👉 ${GROUP_LINK}`;
-  } else if (user.rewarded) {
-    message += `\n✅ You already have access:\n👉 ${GROUP_LINK}`;
+  if (!subscribed) {
+    return ctx.reply('❌ You still haven’t joined the channel.\n\n📢 https://t.me/' + CHANNEL_USERNAME);
   }
 
-  await ctx.reply(message, { parse_mode: 'Markdown' });
+  await addUser(userId);
+  await sendReferralMessage(ctx, userId);
 });
 
 bot.command('myreferrals', async (ctx) => {
   const userId = String(ctx.from.id);
-  const user = await getUser(userId);
-
+  const user = await users.findOne({ id: userId });
   if (!user) return ctx.reply('❌ You are not registered yet. Send /start');
 
-  const referralCount = user.referrals || 0;
-  const needed = Math.max(0, 3 - referralCount);
-  const myLink = `https://t.me/${ctx.me}?start=${userId}`;
-
-  let message = `
-🔗 Your referral link:
-${myLink}
-
-📊 Invited: *${referralCount}*
-🎯 Need *${needed}* more to unlock access
-`;
-
-  if (user.rewarded) {
-    message += `\n✅ You already have access:\n👉 ${GROUP_LINK}`;
-  }
-
-  await ctx.reply(message, { parse_mode: 'Markdown' });
+  await sendReferralMessage(ctx, userId);
 });
 
-// Start bot & connect DB
+bot.command('help', async (ctx) => {
+  await ctx.reply(`
+🧠 <b>How to Use This Bot</b>:
+
+1️⃣ Join our channel: https://t.me/${CHANNEL_USERNAME}
+2️⃣ Send /start to get your <b>referral link</b>
+3️⃣ Share it and invite <b>3 friends</b>
+4️⃣ Unlock private group access with the button
+
+💬 /myreferrals - Check how many you referred
+`, { parse_mode: 'HTML' });
+});
+
+bot.action('get_access_link', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const { referralCount, rewarded } = await refreshReferralStatus(userId);
+
+  if (!rewarded) {
+    const needed = 3 - referralCount;
+    return ctx.reply(`⛔ You need ${needed} more referral${needed === 1 ? '' : 's'} to access the group.`);
+  }
+
+  return ctx.reply(
+    `✅ Congratulations! You've unlocked the private group access.\n\n👉 <a href="${GROUP_LINK}">Join Group</a>`,
+    { parse_mode: 'HTML' }
+  );
+});
+
 (async () => {
   try {
     await startDB();
     await bot.launch();
-    console.log('🤖 Bot is running with MongoDB referral system!');
+    console.log('🤖 Bot is running with secure referral system!');
   } catch (err) {
-    console.error('Failed to start bot:', err);
+    console.error('❌ Failed to start bot:', err);
   }
 })();
 
-// Graceful stop
 process.once('SIGINT', () => {
   console.log('Stopping bot...');
   bot.stop('SIGINT');
