@@ -85,11 +85,17 @@ async function sendReferralMessage(ctx, userId, showPromo = true) {
     const photoPath = path.resolve('./photo.png'); // local file path
 
     const caption = `
-🔥🔥🔥 <b>3-DAY FREE MARATHON by Marifkon Team – Just for Teens!</b> 🔥🔥🔥
+🔥🔥🔥 <b>3-DAY FREE MARATHON by Marifkon Team - Just for Teens!</b> 🔥🔥🔥
 
 <b>Are you 12-18 years old? Want to boost your Programming, English, or Math skills in just 3 days?</b>
 
+📚 Subjects: Programming • English • Math
+👥 For Ages: 12-18
+⏱️ Duration: 3 days
+⏳Deadline to Join: June 1, 2025
+
 Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
+
 
 🔗 <b>Your Referral Link:</b>
 <a href="${myLink}">${myLink}</a>
