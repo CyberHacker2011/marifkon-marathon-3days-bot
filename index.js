@@ -2,8 +2,7 @@ import { Telegraf, Markup } from 'telegraf';
 import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
 import express from 'express';
-
-
+import path from 'path';
 
 dotenv.config();
 
@@ -75,40 +74,44 @@ async function refreshReferralStatus(userId) {
   return { referralCount: count, rewarded: user.rewarded || count >= 3 };
 }
 
-function getReferralMessage(userId, referralCount, rewarded) {
-  const needed = Math.max(0, 3 - referralCount);
+async function sendReferralMessage(ctx, userId, showPromo = true) {
+  const { referralCount, rewarded } = await refreshReferralStatus(userId);
+
   const username = bot.botInfo.username;
   const myLink = `https://t.me/${username}?start=${userId}`;
+  const needed = Math.max(0, 3 - referralCount);
 
-  let message = `
-<b>📣 Invite your friends to join Marifkon Marathon!</b>
+  if (showPromo) {
+    const photoPath = path.resolve('./photo.png'); // local file path
+
+    const caption = `
+🔥🔥🔥 <b>3-DAY FREE MARATHON by Marifkon Team – Just for Teens!</b> 🔥🔥🔥
+
+<b>Are you 12-18 years old? Want to boost your Programming, English, or Math skills in just 3 days?</b>
+
+Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
 
 🔗 <b>Your Referral Link:</b>
 <a href="${myLink}">${myLink}</a>
+    `;
 
-👥 <b>Referrals:</b> ${referralCount}
-🎯 <b>Need ${needed} more to unlock access</b>
-  `;
-
-  if (rewarded) {
-    message += `\n\n✅ <b>You already have access!</b>`;
+    await ctx.replyWithPhoto({ source: photoPath }, {
+      caption,
+      parse_mode: 'HTML',
+      ...Markup.inlineKeyboard([
+        [Markup.button.url(rewarded ? '👉 Join Group' : '👉 Participate', rewarded ? GROUP_LINK : myLink)]
+      ]),
+    });
   }
 
-  return message;
-}
+  let info = `👥 <b>Your Referrals:</b> ${referralCount}\n`;
+  if (!rewarded) {
+    info += `🎯 <b>Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock access!</b>`;
+  } else {
+    info += `✅ <b>You already have access to the private group!</b>`;
+  }
 
-async function sendReferralMessage(ctx, userId) {
-  const { referralCount, rewarded } = await refreshReferralStatus(userId);
-  const message = getReferralMessage(userId, referralCount, rewarded);
-
-  const buttons = rewarded
-    ? [[Markup.button.url('👉 Join Group', GROUP_LINK)]]
-    : [[Markup.button.url('👉 Participate', `https://t.me/${bot.botInfo.username}?start=${userId}`)]];
-
-  await ctx.reply(message, {
-    parse_mode: 'HTML',
-    ...Markup.inlineKeyboard(buttons),
-  });
+  await ctx.reply(info, { parse_mode: 'HTML' });
 }
 
 bot.start(async (ctx) => {
@@ -127,7 +130,7 @@ bot.start(async (ctx) => {
   }
 
   await addUser(userId, refId);
-  await sendReferralMessage(ctx, userId);
+  await sendReferralMessage(ctx, userId, true);
 });
 
 bot.action('check_subscription', async (ctx) => {
@@ -139,7 +142,7 @@ bot.action('check_subscription', async (ctx) => {
   }
 
   await addUser(userId);
-  await sendReferralMessage(ctx, userId);
+  await sendReferralMessage(ctx, userId, true);
 });
 
 bot.command('myreferrals', async (ctx) => {
@@ -147,7 +150,7 @@ bot.command('myreferrals', async (ctx) => {
   const user = await users.findOne({ id: userId });
   if (!user) return ctx.reply('❌ You are not registered yet. Send /start');
 
-  await sendReferralMessage(ctx, userId);
+  await sendReferralMessage(ctx, userId, false);
 });
 
 bot.command('help', async (ctx) => {
@@ -183,23 +186,10 @@ bot.action('get_access_link', async (ctx) => {
     await startDB();
     await bot.launch();
     console.log('🤖 Bot is running with secure referral system!');
-
-    // Start Express server for Render hosting
-    const app = express();
-    const PORT = process.env.PORT || 3000;
-
-    app.get('/', (req, res) => {
-      res.send('Bot is running');
-    });
-
-    app.listen(PORT, () => {
-      console.log(`🌐 Express server listening on port ${PORT}`);
-    });
-
   } catch (err) {
     console.error('❌ Failed to start bot:', err);
   }
-})();;
+})();
 
 process.once('SIGINT', () => {
   console.log('Stopping bot...');
