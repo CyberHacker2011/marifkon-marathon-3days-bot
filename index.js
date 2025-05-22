@@ -54,13 +54,20 @@ async function addUser(id, referredBy = null) {
   id = String(id);
   if (referredBy) referredBy = String(referredBy);
 
-  const user = await users.findOne({ id });
-
-  if (!user) {
-    await users.insertOne({ id, referrals: 0, rewarded: false, referredBy });
-  } else if (!user.referredBy && referredBy && referredBy !== id) {
-    await users.updateOne({ id }, { $set: { referredBy } });
-  }
+  // Update or insert user atomically
+  await users.updateOne(
+    { id },
+    {
+      $setOnInsert: {
+        id,
+        referrals: 0,
+        rewarded: false,
+        referredBy: referredBy && referredBy !== id ? referredBy : null
+      },
+      $set: referredBy && referredBy !== id ? { referredBy } : {}
+    },
+    { upsert: true }
+  );
 }
 
 async function refreshReferralStatus(userId) {
