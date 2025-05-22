@@ -244,150 +244,206 @@ async function sendLanguageSelection(ctx) {
     MESSAGES['uz'].choose_lang, // bilingual prompt is fine
     Markup.inlineKeyboard([
       [Markup.button.callback('🇺🇿 Oʻzbekcha', 'lang_uz')],
-      [Markup.button.callback('🇬🇧 English', 'lang_en')],
+      [Markup.button.callback('🇬🇧 English', 'lang_en')]
     ])
   );
 }
 
-// Bot commands and handlers
+// Middleware to enforce channel subscription before main commands
+bot.use(async (ctx, next) => {
+  if (!ctx.from) return;
+  const isSub = await isSubscribed(ctx);
+  if (!isSub) {
+    const lang = await getUserLanguage(String(ctx.from.id));
+    return ctx.reply(
+      MESSAGES[lang].joined_channel,
+      Markup.inlineKeyboard([
+        Markup.button.url(MESSAGES[lang].joined_channel_btn, `https://t.me/${CHANNEL_USERNAME}`),
+        Markup.button.callback(MESSAGES[lang].check_sub_button, 'check_sub')
+      ])
+    );
+  }
+  return next();
+});
 
+// Start command
 bot.start(async (ctx) => {
   const userId = String(ctx.from.id);
-  const refId = ctx.startPayload || null;
+  let referredBy = null;
 
-  const user = await users.findOne({ id: userId });
-
-  if (user && user.language) {
-    // Check subscription first
-    const subscribed = await isSubscribed(ctx);
-    if (!subscribed) {
-      const lang = user.language;
-      return ctx.reply(
-        MESSAGES[lang].joined_channel,
-        Markup.inlineKeyboard([
-          [Markup.button.url(MESSAGES[lang].joined_channel_btn, `https://t.me/${CHANNEL_USERNAME}`)],
-          [Markup.button.callback(MESSAGES[lang].check_sub_button, 'check_subscription')],
-        ])
-      );
-    }
-    // Update user with referral info if new
-    await addUser(userId, refId, ctx.from, user.language);
-    await sendReferralMessage(ctx, userId, true);
-  } else {
-    // No user or no language => ask for language selection first
-    await sendLanguageSelection(ctx);
+  if (ctx.startPayload) {
+    referredBy = ctx.startPayload;
   }
+
+  await addUser(userId, referredBy, ctx.from);
+
+  const lang = await getUserLanguage(userId);
+  const username = bot.botInfo.username;
+  const referralLink = `https://t.me/${username}?start=${userId}`;
+
+  await ctx.reply(
+    `${MESSAGES[lang].help_text}\n\n${MESSAGES[lang].referral_link_text(referralLink)}`,
+    { parse_mode: 'HTML' }
+  );
+
+  // Show promo photo and referral info
+  await sendReferralMessage(ctx, userId, true);
 });
 
-bot.action('check_subscription', async (ctx) => {
-  try {
-    const userId = String(ctx.from.id);
-    const subscribed = await isSubscribed(ctx);
-
-    const lang = await getUserLanguage(userId);
-
-    if (subscribed) {
-      await ctx.answerCbQuery('✅ You are subscribed!');
-      await ctx.deleteMessage();
-      await sendReferralMessage(ctx, userId, true);
-    } else {
-      await ctx.answerCbQuery('❌ You are not subscribed yet!');
-      await ctx.reply(MESSAGES[lang].not_subscribed);
-    }
-  } catch (err) {
-    console.error('Error in check_subscription action:', err);
-    await ctx.answerCbQuery('Error occurred, try again.');
-  }
-});
-
+// Language command
 bot.command('language', async (ctx) => {
   await sendLanguageSelection(ctx);
 });
 
-bot.command('help', async (ctx) => {
-  const lang = await getUserLanguage(ctx.from.id);
-  await ctx.reply(MESSAGES[lang].help_text, { parse_mode: 'HTML' });
+// Language button callbacks
+bot.action('lang_uz', async (ctx) => {
+  const userId = String(ctx.from.id);
+  await users.updateOne({ id: userId }, { $set: { language: 'uz' } });
+  await ctx.answerCbQuery('Til o‘zgartirildi');
+  await ctx.editMessageText(MESSAGES['uz'].language_changed);
+});
+bot.action('lang_en', async (ctx) => {
+  const userId = String(ctx.from.id);
+  await users.updateOne({ id: userId }, { $set: { language: 'en' } });
+  await ctx.answerCbQuery('Language changed');
+  await ctx.editMessageText(MESSAGES['en'].language_changed);
 });
 
-bot.command('myreferrals', async (ctx) => {
+// Check subscription button
+bot.action('check_sub', async (ctx) => {
+  const isSub = await isSubscribed(ctx);
   const userId = String(ctx.from.id);
   const lang = await getUserLanguage(userId);
 
+  if (isSub) {
+    await ctx.answerCbQuery(MESSAGES[lang].congrats_access, { show_alert: true });
+    // Send referral info
+    await sendReferralMessage(ctx, userId, false);
+  } else {
+    await ctx.answerCbQuery(MESSAGES[lang].not_subscribed, { show_alert: true });
+  }
+});
+
+// Referral info command
+bot.command('myreferrals', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const lang = await getUserLanguage(userId);
   const count = await users.countDocuments({ referredBy: userId });
   await ctx.reply(MESSAGES[lang].referrals_info(count));
 });
 
-bot.action(/lang_(uz|en)/, async (ctx) => {
-  try {
-    const userId = String(ctx.from.id);
-    const newLang = ctx.match[1];
-    await users.updateOne({ id: userId }, { $set: { language: newLang } }, { upsert: true });
-    await ctx.answerCbQuery(`Language changed to ${newLang === 'uz' ? 'O‘zbekcha' : 'English'}`);
-    await ctx.deleteMessage();
-    await ctx.reply(MESSAGES[newLang].language_changed);
-  } catch (err) {
-    console.error('Error in language change:', err);
-    await ctx.answerCbQuery('Failed to change language.');
-  }
+// Reset referrals command
+bot.command('resetreferrals', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const lang = await getUserLanguage(userId);
+
+  await users.updateOne({ id: userId }, { $set: { referrals: 0, rewarded: false } });
+
+  await ctx.reply(lang === 'uz'
+    ? '👥 Takliflaringiz qayta o‘rnatildi. Siz yana 3 do‘st taklif qilishingiz kerak.'
+    : '👥 Your referrals have been reset. You need to invite 3 friends again.'
+  );
 });
 
-// Daily message scheduler
-cron.schedule('0 9 * * *', async () => {
-  // Every day at 09:00 server time
-  try {
-    const cursor = users.find({});
-    while (await cursor.hasNext()) {
-      const user = await cursor.next();
-      const lang = user.language || 'uz';
-      const { referralCount, rewarded } = await refreshReferralStatus(user.id);
+// Stats command
+bot.command('mystats', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const lang = await getUserLanguage(userId);
+  const user = await users.findOne({ id: userId });
+  if (!user) return ctx.reply(lang === 'uz' ? 'Foydalanuvchi topilmadi.' : 'User not found.');
 
-      const needed = Math.max(0, 3 - referralCount);
+  const referralCount = await users.countDocuments({ referredBy: userId });
+  const rewarded = user.rewarded || referralCount >= 3;
 
-      if (!rewarded) {
-        await bot.telegram.sendMessage(
-          user.id,
-          MESSAGES[lang].daily_msg_locked(user.first_name, needed, referralCount),
-          { parse_mode: 'HTML' }
-        );
-      } else {
-        await bot.telegram.sendMessage(
-          user.id,
-          MESSAGES[lang].daily_msg_unlocked(user.first_name),
-          { parse_mode: 'HTML' }
-        );
+  const msg = lang === 'uz' 
+    ? `👤 Sizning ma'lumotlaringiz:\n\n` +
+      `📊 Takliflar soni: ${referralCount}\n` +
+      `🔓 Guruhga kirish: ${rewarded ? 'Ha' : 'Yo‘q'}\n` +
+      `🗣️ Til: ${user.language === 'uz' ? "O‘zbekcha" : "English"}`
+    : `👤 Your stats:\n\n` +
+      `📊 Referrals: ${referralCount}\n` +
+      `🔓 Group Access: ${rewarded ? 'Yes' : 'No'}\n` +
+      `🗣️ Language: ${user.language === 'uz' ? "O‘zbekcha" : "English"}`;
+
+  await ctx.reply(msg);
+});
+
+// Leaderboard command
+bot.command('leaderboard', async (ctx) => {
+  const lang = await getUserLanguage(ctx.from.id);
+
+  const pipeline = [
+    { $match: { referredBy: { $ne: null } } },
+    { $group: { _id: "$referredBy", count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: 5 },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "id",
+        as: "user_info"
       }
     }
-    console.log('🕘 Daily messages sent');
-  } catch (err) {
-    console.error('Daily message error:', err);
+  ];
+
+  const topRefs = await users.aggregate(pipeline).toArray();
+
+  if (!topRefs.length) {
+    return ctx.reply(lang === 'uz' ? 'Hozircha taklif qilganlar yo‘q.' : 'No referrals yet.');
   }
+
+  let message = lang === 'uz' ? '🏆 Top 5 taklifchilar:\n\n' : '🏆 Top 5 referrers:\n\n';
+
+  topRefs.forEach((entry, i) => {
+    const user = entry.user_info[0];
+    const name = user?.first_name || user?.username || 'Unknown';
+    message += `${i + 1}. ${name}: ${entry.count}\n`;
+  });
+
+  await ctx.reply(message);
 });
 
-// Graceful shutdown
-process.once('SIGINT', async () => {
-  console.log('SIGINT received. Shutting down...');
-  await bot.stop('SIGINT');
-  await client.close();
-  process.exit(0);
-});
-process.once('SIGTERM', async () => {
-  console.log('SIGTERM received. Shutting down...');
-  await bot.stop('SIGTERM');
-  await client.close();
-  process.exit(0);
+// Show user's referral link
+bot.command('myreferral', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const lang = await getUserLanguage(userId);
+  const username = bot.botInfo.username;
+  const link = `https://t.me/${username}?start=${userId}`;
+
+  await ctx.reply(MESSAGES[lang].referral_link_text(link));
 });
 
-// Init everything
-async function init() {
+// Daily reminder message - runs at 9:00 AM server time
+cron.schedule('0 9 * * *', async () => {
   try {
-    await startDB();
-    await migrateUsersAddLanguage();
-    await bot.launch();
-    console.log('🤖 Bot started successfully');
-  } catch (err) {
-    console.error('Initialization failed:', err);
-    process.exit(1);
-  }
-}
+    const usersList = await users.find().toArray();
+    for (const user of usersList) {
+      const lang = user.language || 'uz';
+      const userId = user.id;
+      const referralCount = await users.countDocuments({ referredBy: userId });
+      const rewarded = user.rewarded || referralCount >= 3;
+      const needed = Math.max(0, 3 - referralCount);
 
-init();
+      if (rewarded) {
+        await bot.telegram.sendMessage(userId, MESSAGES[lang].daily_msg_unlocked(user.first_name), { parse_mode: 'HTML' });
+      } else {
+        await bot.telegram.sendMessage(userId, MESSAGES[lang].daily_msg_locked(user.first_name, needed, referralCount), { parse_mode: 'HTML' });
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error sending daily messages:', error);
+  }
+});
+
+// Launch bot
+(async () => {
+  await startDB();
+  // Uncomment if needed:
+  // await migrateUsersAddLanguage();
+  await bot.launch();
+  console.log('🤖 Bot started');
+
+  process.once('SIGINT', () => bot.stop('SIGINT'));
+  process.once('SIGTERM', () => bot.stop('SIGTERM'));
+})();
