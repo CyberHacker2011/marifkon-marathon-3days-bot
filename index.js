@@ -41,6 +41,36 @@ async function startDB() {
   console.log('🗄️ Connected to MongoDB');
 }
 
+function getText(lang, key) {
+  const messages = {
+    lang_prompt: {
+      uz: "Iltimos, tilni tanlang:",
+      en: "Please choose your language:"
+    },
+    join_channel: {
+      uz: `Iltimos, davom etish uchun kanalga qo‘shiling:\n\n📢 https://t.me/${CHANNEL_USERNAME}`,
+      en: `Please join our channel first to continue:\n\n📢 https://t.me/${CHANNEL_USERNAME}`
+    },
+    not_subscribed: {
+      uz: "❌ Siz hali kanalga qo‘shilmadingiz.\n\n📢 https://t.me/" + CHANNEL_USERNAME,
+      en: "❌ You still haven’t joined the channel.\n\n📢 https://t.me/" + CHANNEL_USERNAME
+    },
+    registered: {
+      uz: "✅ Siz ro‘yxatdan o‘tdingiz!",
+      en: "✅ You have been registered!"
+    },
+    referrals_needed: {
+      uz: (needed) => `⛔ Siz hali kirish huquqiga ega emassiz.\n🎯 Yana ${needed} do‘stni taklif qiling!`,
+      en: (needed) => `⛔ You don’t have access yet.\n🎯 Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock the group!`
+    },
+    unlocked_group: {
+      uz: `✅ Siz maxfiy guruhga kirish huquqini oldingiz!\n👉 <a href="${GROUP_LINK}">Guruhga qo‘shilish</a>`,
+      en: `✅ You've unlocked access to the private group!\n👉 <a href="${GROUP_LINK}">Join the Private Group</a>`
+    }
+  };
+  return messages[key][lang];
+}
+
 async function isSubscribed(ctx) {
   try {
     const member = await ctx.telegram.getChatMember('@' + CHANNEL_USERNAME, ctx.from.id);
@@ -51,7 +81,7 @@ async function isSubscribed(ctx) {
   }
 }
 
-async function addUser(id, referredBy = null, from = {}) {
+async function addUser(id, referredBy = null, from = {}, lang = 'uz') {
   id = String(id);
   if (referredBy) referredBy = String(referredBy);
 
@@ -65,7 +95,8 @@ async function addUser(id, referredBy = null, from = {}) {
         referredBy: referredBy && referredBy !== id ? referredBy : null,
         first_name: from.first_name || null,
         last_name: from.last_name || null,
-        username: from.username || null
+        username: from.username || null,
+        lang: lang
       },
       $set: referredBy && referredBy !== id ? { referredBy } : {}
     },
@@ -86,176 +117,84 @@ async function refreshReferralStatus(userId) {
 
 async function sendReferralMessage(ctx, userId, showPromo = true) {
   const { referralCount, rewarded } = await refreshReferralStatus(userId);
+  const user = await users.findOne({ id: userId });
+  const lang = user?.lang || 'uz';
 
   const username = bot.botInfo.username;
   const myLink = `https://t.me/${username}?start=${userId}`;
   const needed = Math.max(0, 3 - referralCount);
 
   if (showPromo) {
-    const photoPath = path.resolve('./photo.png'); // local file path
-
-    const caption = `
-🔥🔥🔥 <b>3-DAY FREE MARATHON by Marifkon Team - Just for Teens!</b> 🔥🔥🔥
-
-<b>Are you 12-18 years old? Want to boost your Programming, English, or Math skills in just 3 days?</b>
-
-📚 Subjects: Programming • English • Math  
-👥 For Ages: 12-18  
-⏱️ Duration: 3 days  
-⏳ Deadline to Join: June 1, 2025
-
-Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
-
-🔗 <b>Your Referral Link:</b>  
-<a href="${myLink}">${myLink}</a>
-    `;
+    const photoPath = path.resolve('./photo.png');
+    const caption = lang === 'uz' ?
+      `🔥🔥🔥 <b>Marifkon 3 kunlik BEPUL marafoni!</b> 🔥🔥🔥\n\n12-18 yoshdagi bolalar uchun dasturlash, ingliz tili va matematikani o‘rganing!\n\n📚 Fanlar: Dasturlash • Ingliz tili • Matematika\n⏱️ Davomiylik: 3 kun\n⏳ Oxirgi muddat: 1-iyun, 2025\n\n🔗 <b>Taklif havolangiz:</b>\n<a href="${myLink}">${myLink}</a>`
+      :
+      `🔥🔥🔥 <b>3-DAY FREE MARATHON by Marifkon!</b> 🔥🔥🔥\n\nFor 12-18 year olds: Boost your Programming, English, or Math!\n\n📚 Subjects: Programming • English • Math\n⏱️ Duration: 3 days\n⏳ Deadline: June 1, 2025\n\n🔗 <b>Your Referral Link:</b>\n<a href="${myLink}">${myLink}</a>`;
 
     await ctx.replyWithPhoto({ source: photoPath }, {
       caption,
       parse_mode: 'HTML',
       ...Markup.inlineKeyboard([
-        [Markup.button.url(rewarded ? '👉 Join Group' : '👉 Participate', rewarded ? GROUP_LINK : myLink)]
+        [Markup.button.url(rewarded ? (lang === 'uz' ? '👉 Guruhga qo‘shilish' : '👉 Join Group') : (lang === 'uz' ? '👉 Ishtirok etish' : '👉 Participate'), rewarded ? GROUP_LINK : myLink)]
       ]),
     });
   }
 
-  let info = `👥 <b>Your Referrals:</b> ${referralCount}\n`;
+  let info = `👥 <b>${lang === 'uz' ? 'Sizning takliflaringiz' : 'Your Referrals'}:</b> ${referralCount}\n`;
 
   if (rewarded) {
-    info += `✅ <b>You've unlocked access to the private group!</b>\n👉 <a href="${GROUP_LINK}">Join the Private Group</a>`;
+    info += getText(lang, 'unlocked_group');
   } else {
-    info += `⛔ <b>You don’t have access yet.</b>\n🎯 Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock the group!`;
+    info += getText(lang, 'referrals_needed')(needed);
   }
 
   await ctx.reply(info, { parse_mode: 'HTML' });
 }
 
-
 bot.start(async (ctx) => {
   const userId = String(ctx.from.id);
   const refId = ctx.startPayload || null;
 
-  const subscribed = await isSubscribed(ctx);
-  if (!subscribed) {
-    return ctx.reply(
-      `Please join our channel first to continue:\n\n📢 https://t.me/${CHANNEL_USERNAME}`,
-      Markup.inlineKeyboard([
-        [Markup.button.url('📢 Join Channel', `https://t.me/${CHANNEL_USERNAME}`)],
-        [Markup.button.callback('✅ I Subscribed', 'check_subscription')],
-      ])
-    );
-  }
-
-  await addUser(userId, refId, ctx.from);
-  await sendReferralMessage(ctx, userId, true);
-});
-
-bot.action('check_subscription', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const subscribed = await isSubscribed(ctx);
-
-  if (!subscribed) {
-    return ctx.reply('❌ You still haven’t joined the channel.\n\n📢 https://t.me/' + CHANNEL_USERNAME);
-  }
-
-  await addUser(userId, null, ctx.from);
-  await sendReferralMessage(ctx, userId, true);
-});
-
-bot.command('myreferrals', async (ctx) => {
-  const userId = String(ctx.from.id);
   const user = await users.findOne({ id: userId });
-  if (!user) return ctx.reply('❌ You are not registered yet. Send /start');
+  if (!user) {
+    return ctx.reply(getText('uz', 'lang_prompt'), Markup.inlineKeyboard([
+      [Markup.button.callback('🇺🇿 O‘zbekcha', 'lang_uz'), Markup.button.callback('🇬🇧 English', 'lang_en')]
+    ]));
+  }
 
-  await sendReferralMessage(ctx, userId, false);
+  const subscribed = await isSubscribed(ctx);
+  if (!subscribed) {
+    return ctx.reply(getText(user.lang || 'uz', 'join_channel'), Markup.inlineKeyboard([
+      [Markup.button.url('📢 Join Channel', `https://t.me/${CHANNEL_USERNAME}`)],
+      [Markup.button.callback('✅ I Subscribed', 'check_subscription')],
+    ]));
+  }
+
+  await addUser(userId, refId, ctx.from, user.lang || 'uz');
+  await sendReferralMessage(ctx, userId, true);
 });
 
-bot.command('help', async (ctx) => {
-  await ctx.reply(`
-🧠 <b>How to Use This Bot</b>:
-
-1️⃣ Join our channel: https://t.me/${CHANNEL_USERNAME}
-2️⃣ Send /start to get your <b>referral link</b>
-3️⃣ Share it and invite <b>3 friends</b>
-4️⃣ Unlock private group access with the button
-
-💬 /myreferrals - Check how many you referred
-`, { parse_mode: 'HTML' });
-});
-
-bot.action('get_access_link', async (ctx) => {
+bot.action(['lang_uz', 'lang_en'], async (ctx) => {
+  const lang = ctx.match[0].split('_')[1];
   const userId = String(ctx.from.id);
-  const { referralCount, rewarded } = await refreshReferralStatus(userId);
+  const refId = ctx.startPayload || null;
 
-  if (!rewarded) {
-    const needed = 3 - referralCount;
-    return ctx.reply(`⛔ You need ${needed} more referral${needed === 1 ? '' : 's'} to access the group.`);
+  await addUser(userId, refId, ctx.from, lang);
+  await ctx.reply(getText(lang, 'registered'));
+
+  const subscribed = await isSubscribed(ctx);
+  if (!subscribed) {
+    return ctx.reply(getText(lang, 'join_channel'), Markup.inlineKeyboard([
+      [Markup.button.url('📢 Join Channel', `https://t.me/${CHANNEL_USERNAME}`)],
+      [Markup.button.callback('✅ I Subscribed', 'check_subscription')],
+    ]));
   }
 
-  return ctx.reply(
-    `✅ Congratulations! You've unlocked the private group access.\n\n👉 <a href="${GROUP_LINK}">Join Group</a>`,
-    { parse_mode: 'HTML' }
-  );
+  await sendReferralMessage(ctx, userId, true);
 });
 
-// Scheduled message every day at 9:00 AM server time
-// Function to send scheduled message
-async function sendDailyMessage() {
-  try {
-    const allUsers = await users.find().toArray();
-    for (const user of allUsers) {
-      try {
-        const { referralCount, rewarded } = await refreshReferralStatus(user.id);
-        const needed = Math.max(0, 3 - referralCount);
-
-        let message = `🌞 Assalomu alaykum${user.first_name ? ', ' + user.first_name : ''}!\n\n`;
-
-        if (rewarded) {
-          message += `✅ You've already unlocked access to the private group! 🎉\n`;
-          message += `📢 Check the channel for updates: https://t.me/${CHANNEL_USERNAME}`;
-        } else {
-          message += `⏳ You need ${needed} more referral${needed === 1 ? '' : 's'} to unlock the group.\n`;
-          message += `🎯 Your progress: ${referralCount}/3 referrals\n`;
-          message += `📢 Check our channel for updates: https://t.me/${CHANNEL_USERNAME}\n`;
-          message += `🔗 Keep sharing your referral link to unlock access!`;
-        }
-
-        await bot.telegram.sendMessage(user.id, message);
-      } catch (err) {
-        console.error(`Failed to send message to ${user.id}:`, err.message);
-      }
-    }
-    console.log('✅ Scheduled messages sent.');
-  } catch (err) {
-    console.error('❌ Error sending scheduled messages:', err);
-  }
-}
-
-// 🔁 Schedule at 9:00 AM Tashkent (04:00 UTC)
-cron.schedule('0 5 * * *', sendDailyMessage);
-
-// 🔁 Schedule at 3:00 PM Tashkent (10:00 UTC)
-cron.schedule('0 15 * * *', sendDailyMessage);
-
-
-
-(async () => {
-  try {
-    await startDB();
-    await bot.launch();
-    console.log('🤖 Bot is running with secure referral system!');
-  } catch (err) {
-    console.error('❌ Failed to start bot:', err);
-  }
-})();
-
-process.once('SIGINT', () => {
-  console.log('Stopping bot...');
-  bot.stop('SIGINT');
-  client.close();
-});
-process.once('SIGTERM', () => {
-  console.log('Stopping bot...');
-  bot.stop('SIGTERM');
-  client.close();
+bot.command('language', async (ctx) => {
+  await ctx.reply('🌐 Choose your language / Tilni tanlang:', Markup.inlineKeyboard([
+    [Markup.button.callback('🇺🇿 O‘zbekcha', 'lang_uz'), Markup.button.callback('🇬🇧 English', 'lang_en')]
+  ]));
 });
