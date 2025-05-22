@@ -3,6 +3,7 @@ import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
+import cron from 'node-cron';
 
 dotenv.config();
 
@@ -50,11 +51,10 @@ async function isSubscribed(ctx) {
   }
 }
 
-async function addUser(id, referredBy = null) {
+async function addUser(id, referredBy = null, from = {}) {
   id = String(id);
   if (referredBy) referredBy = String(referredBy);
 
-  // Update or insert user atomically
   await users.updateOne(
     { id },
     {
@@ -62,7 +62,10 @@ async function addUser(id, referredBy = null) {
         id,
         referrals: 0,
         rewarded: false,
-        referredBy: referredBy && referredBy !== id ? referredBy : null
+        referredBy: referredBy && referredBy !== id ? referredBy : null,
+        first_name: from.first_name || null,
+        last_name: from.last_name || null,
+        username: from.username || null
       },
       $set: referredBy && referredBy !== id ? { referredBy } : {}
     },
@@ -103,6 +106,7 @@ async function sendReferralMessage(ctx, userId, showPromo = true) {
 
 Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
 
+
 🔗 <b>Your Referral Link:</b>
 <a href="${myLink}">${myLink}</a>
     `;
@@ -120,7 +124,7 @@ Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
   if (!rewarded) {
     info += `🎯 <b>Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock access!</b>`;
   } else {
-    info += `✅ <b>You already have access to the private group!</b>`;
+    info += `✅ <b>You already have access to the private group!</b>\n\nHere is your referral link:\n${myLink}`;
   }
 
   await ctx.reply(info, { parse_mode: 'HTML' });
@@ -141,7 +145,7 @@ bot.start(async (ctx) => {
     );
   }
 
-  await addUser(userId, refId);
+  await addUser(userId, refId, ctx.from);
   await sendReferralMessage(ctx, userId, true);
 });
 
@@ -153,7 +157,7 @@ bot.action('check_subscription', async (ctx) => {
     return ctx.reply('❌ You still haven’t joined the channel.\n\n📢 https://t.me/' + CHANNEL_USERNAME);
   }
 
-  await addUser(userId);
+  await addUser(userId, null, ctx.from);
   await sendReferralMessage(ctx, userId, true);
 });
 
@@ -162,18 +166,7 @@ bot.command('myreferrals', async (ctx) => {
   const user = await users.findOne({ id: userId });
   if (!user) return ctx.reply('❌ You are not registered yet. Send /start');
 
-  const { referralCount, rewarded } = await refreshReferralStatus(userId);
-  const needed = Math.max(0, 3 - referralCount);
-
-  let message = `👥 <b>Your Referrals:</b> ${referralCount}\n`;
-
-  if (rewarded) {
-    message += `✅ <b>You already have access to the private group!</b>\n\n👉 <a href="${GROUP_LINK}">Click here to join</a>`;
-  } else {
-    message += `🎯 <b>Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock access!</b>`;
-  }
-
-  await ctx.reply(message, { parse_mode: 'HTML' });
+  await sendReferralMessage(ctx, userId, false);
 });
 
 bot.command('help', async (ctx) => {
@@ -203,6 +196,47 @@ bot.action('get_access_link', async (ctx) => {
     { parse_mode: 'HTML' }
   );
 });
+
+// Scheduled message every day at 9:00 AM server time
+// Function to send scheduled message
+async function sendDailyMessage() {
+  try {
+    const allUsers = await users.find().toArray();
+    for (const user of allUsers) {
+      try {
+        const { referralCount, rewarded } = await refreshReferralStatus(user.id);
+        const needed = Math.max(0, 3 - referralCount);
+
+        let message = `🌞 Assalomu alaykum${user.first_name ? ', ' + user.first_name : ''}!\n\n`;
+
+        if (rewarded) {
+          message += `✅ You've already unlocked access to the private group! 🎉\n`;
+          message += `📢 Check the channel for updates: https://t.me/${CHANNEL_USERNAME}`;
+        } else {
+          message += `⏳ You need ${needed} more referral${needed === 1 ? '' : 's'} to unlock the group.\n`;
+          message += `🎯 Your progress: ${referralCount}/3 referrals\n`;
+          message += `📢 Check our channel for updates: https://t.me/${CHANNEL_USERNAME}\n`;
+          message += `🔗 Keep sharing your referral link to unlock access!`;
+        }
+
+        await bot.telegram.sendMessage(user.id, message);
+      } catch (err) {
+        console.error(`Failed to send message to ${user.id}:`, err.message);
+      }
+    }
+    console.log('✅ Scheduled messages sent.');
+  } catch (err) {
+    console.error('❌ Error sending scheduled messages:', err);
+  }
+}
+
+// 🔁 Schedule at 9:00 AM Tashkent (04:00 UTC)
+cron.schedule('0 5 * * *', sendDailyMessage);
+
+// 🔁 Schedule at 3:00 PM Tashkent (10:00 UTC)
+cron.schedule('0 15 * * *', sendDailyMessage);
+
+
 
 (async () => {
   try {
