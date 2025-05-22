@@ -471,7 +471,7 @@ bot.on('message', async (ctx) => {
   await startDB();
   
   // await migrateUsersAddLanguage(); // Uncomment if you want to run migration once
-  await migrateUsersFillMissing(); // <-- call migration here before launching bot
+  // await migrateUsersFillMissing(); // <-- call migration here before launching bot
   
   bot.launch();
   console.log('🤖 Bot started');
