@@ -365,14 +365,18 @@ bot.command('help', async (ctx) => {
 bot.command('myreferrals', async (ctx) => {
   const userId = String(ctx.from.id);
   const lang = await getUserLanguage(userId);
+  const { referralCount, rewarded } = await refreshReferralStatus(userId);
 
-  const count = await users.countDocuments({ referredBy: userId });
-  await ctx.reply(MESSAGES[lang].referrals_info(count));
+  const needed = Math.max(0, 3 - referralCount);
+
+  let info = `${MESSAGES[lang].referrals_info(referralCount)}\n\n`;
   if (rewarded) {
     info += MESSAGES[lang].unlocked_access;
   } else {
     info += `${MESSAGES[lang].no_access_yet}\n${MESSAGES[lang].need_more(needed)}`;
   }
+
+  await ctx.reply(info, { parse_mode: 'HTML' });
 });
 
 bot.action(/lang_(uz|en)/, async (ctx) => {
@@ -389,74 +393,60 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
   }
 });
 
-cron.schedule('0 15 * * *', async () => {
-  console.log('⏰ Sending daily messages...');
+let lastSentTimestamps = {
+  morning: null,
+  evening: null,
+};
 
-  const allUsers = await users.find({}).toArray();
-  const username = bot.botInfo.username;
+function getTashkentTime() {
+  // Get current UTC time
+  const now = new Date();
 
-  for (const user of allUsers) {
-    try {
-      const lang = user.language || 'uz';
-      const name = user.first_name || '';
+  // Tashkent is UTC+5, so add 5 hours
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const tashkentTime = new Date(utc + 5 * 60 * 60 * 1000);
 
-      const referralCount = await users.countDocuments({ referredBy: user.id });
-      const rewarded = user.rewarded || referralCount >= 3;
+  return tashkentTime;
+}
 
-      const needed = Math.max(0, 3 - referralCount);
-      const myLink = `https://t.me/${username}?start=${user.id}`;
+function sendMessage(timeOfDay) {
+  try {
+    const now = getTashkentTime();
 
-      const message = rewarded
-        ? MESSAGES[lang].daily_msg_unlocked(name)
-        : MESSAGES[lang].daily_msg_locked(name, needed, referralCount);
-
-      await bot.telegram.sendMessage(user.id, message, {
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      });
-
-    } catch (err) {
-      console.error(`❌ Failed to send message to user ${user.id}:`, err.message);
+    // Check if message sent within last 60 minutes to avoid duplicates
+    if (
+      lastSentTimestamps[timeOfDay] &&
+      (now - lastSentTimestamps[timeOfDay]) < 60 * 60 * 1000
+    ) {
+      console.log(`Message for ${timeOfDay} already sent recently. Skipping...`);
+      return;
     }
-  }
 
-  console.log('✅ Daily messages sent!');
+    // Your message sending logic here
+    console.log(`Sending ${timeOfDay} message at ${now.toISOString()}`);
+
+    // Save last sent time
+    lastSentTimestamps[timeOfDay] = now;
+
+    // e.g., bot.sendMessage(chatId, 'Your scheduled message content');
+
+  } catch (error) {
+    console.error(`Error sending ${timeOfDay} message:`, error);
+  }
+}
+
+// Schedule 10 AM Tashkent time (UTC+5)
+cron.schedule('0 5 * * *', () => {
+  // Why 5? Because node-cron runs in server local timezone (usually UTC),
+  // and Tashkent is UTC+5, so 10 AM Tashkent = 5 AM UTC
+  sendMessage('morning');
 });
 
-cron.schedule('0 5 * * *', async () => {
-  console.log('⏰ Sending daily messages...');
-
-  const allUsers = await users.find({}).toArray();
-  const username = bot.botInfo.username;
-
-  for (const user of allUsers) {
-    try {
-      const lang = user.language || 'uz';
-      const name = user.first_name || '';
-
-      const referralCount = await users.countDocuments({ referredBy: user.id });
-      const rewarded = user.rewarded || referralCount >= 3;
-
-      const needed = Math.max(0, 3 - referralCount);
-      const myLink = `https://t.me/${username}?start=${user.id}`;
-
-      const message = rewarded
-        ? MESSAGES[lang].daily_msg_unlocked(name)
-        : MESSAGES[lang].daily_msg_locked(name, needed, referralCount);
-
-      await bot.telegram.sendMessage(user.id, message, {
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      });
-
-    } catch (err) {
-      console.error(`❌ Failed to send message to user ${user.id}:`, err.message);
-    }
-  }
-
-  console.log('✅ Daily messages sent!');
+// Schedule 8 PM Tashkent time (UTC+5)
+cron.schedule('0 15 * * *', () => {
+  // 8 PM Tashkent = 3 PM UTC
+  sendMessage('evening');
 });
-
 
 
 // On any message, ensure user is added with default language and check subscription
