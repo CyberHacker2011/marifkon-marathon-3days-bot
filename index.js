@@ -41,6 +41,44 @@ async function startDB() {
   console.log('🗄️ Connected to MongoDB');
 }
 
+// Migration: update old users missing fields (language, referrals, rewarded, referredBy, etc)
+async function migrateUsersFillMissing() {
+  const cursor = users.find({
+    $or: [
+      { language: { $exists: false } },
+      { first_name: { $exists: false } },
+      { last_name: { $exists: false } },
+      { username: { $exists: false } },
+      { referrals: { $exists: false } },
+      { rewarded: { $exists: false } },
+      { referredBy: { $exists: false } },
+    ],
+  });
+
+  let count = 0;
+  while (await cursor.hasNext()) {
+    const user = await cursor.next();
+
+    await users.updateOne(
+      { id: user.id },
+      {
+        $set: {
+          language: user.language || 'uz',
+          first_name: user.first_name || null,
+          last_name: user.last_name || null,
+          username: user.username || null,
+          referrals: typeof user.referrals === 'number' ? user.referrals : 0,
+          rewarded: typeof user.rewarded === 'boolean' ? user.rewarded : false,
+          referredBy:
+            user.referredBy && user.referredBy !== user.id ? user.referredBy : null,
+        },
+      }
+    );
+    count++;
+  }
+  console.log(`🛠️ Migration completed: updated ${count} users with missing fields.`);
+}
+
 // Migration script: call this once if you have old users without language field
 async function migrateUsersAddLanguage() {
   const res = await users.updateMany(
@@ -153,29 +191,41 @@ async function addUser(id, referredBy = null, from = {}, language = 'uz') {
   id = String(id);
   if (referredBy) referredBy = String(referredBy);
 
-  const updateObj = {
-    $setOnInsert: {
-      id,
-      referrals: 0,
-      rewarded: false,
-      referredBy: referredBy && referredBy !== id ? referredBy : null,
-      first_name: from.first_name || null,
-      last_name: from.last_name || null,
-      username: from.username || null,
-      language,
-    }
+  // Prepare fields to always update
+  const updateFields = {
+    first_name: from.first_name || null,
+    last_name: from.last_name || null,
+    username: from.username || null,
+    language,
   };
 
+  // Only set referredBy if it exists and is not equal to id
   if (referredBy && referredBy !== id) {
-    updateObj.$set = { referredBy };
+    updateFields.referredBy = referredBy;
   }
 
+  // Upsert user with basic info and referredBy
   await users.updateOne(
     { id },
-    updateObj,
+    {
+      $set: updateFields,
+      $setOnInsert: {
+        id,
+        referrals: 0,
+        rewarded: false,
+      },
+    },
     { upsert: true }
   );
+
+  // Now count how many users refer this user
+  const referralCount = await users.countDocuments({ referredBy: id });
+
+  // Update referrals count for this user
+  await users.updateOne({ id }, { $set: { referrals: referralCount } });
 }
+
+
 
 // Check if user is subscribed to the channel
 async function isSubscribed(ctx) {
@@ -377,8 +427,10 @@ bot.on('message', async (ctx) => {
 // Start everything
 (async () => {
   await startDB();
+  
   // await migrateUsersAddLanguage(); // Uncomment if you want to run migration once
-
+  await migrateUsersFillMissing(); // <-- call migration here before launching bot
+  
   bot.launch();
   console.log('🤖 Bot started');
 })();
