@@ -103,7 +103,6 @@ async function sendReferralMessage(ctx, userId, showPromo = true) {
 
 Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
 
-
 🔗 <b>Your Referral Link:</b>
 <a href="${myLink}">${myLink}</a>
     `;
@@ -163,7 +162,18 @@ bot.command('myreferrals', async (ctx) => {
   const user = await users.findOne({ id: userId });
   if (!user) return ctx.reply('❌ You are not registered yet. Send /start');
 
-  await sendReferralMessage(ctx, userId, false);
+  const { referralCount, rewarded } = await refreshReferralStatus(userId);
+  const needed = Math.max(0, 3 - referralCount);
+
+  let message = `👥 <b>Your Referrals:</b> ${referralCount}\n`;
+
+  if (rewarded) {
+    message += `✅ <b>You already have access to the private group!</b>\n\n👉 <a href="${GROUP_LINK}">Click here to join</a>`;
+  } else {
+    message += `🎯 <b>Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock access!</b>`;
+  }
+
+  await ctx.reply(message, { parse_mode: 'HTML' });
 });
 
 bot.command('help', async (ctx) => {
