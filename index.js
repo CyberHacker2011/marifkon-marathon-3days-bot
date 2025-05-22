@@ -99,15 +99,14 @@ async function sendReferralMessage(ctx, userId, showPromo = true) {
 
 <b>Are you 12-18 years old? Want to boost your Programming, English, or Math skills in just 3 days?</b>
 
-📚 Subjects: Programming • English • Math
-👥 For Ages: 12-18
-⏱️ Duration: 3 days
-⏳Deadline to Join: June 1, 2025
+📚 Subjects: Programming • English • Math  
+👥 For Ages: 12-18  
+⏱️ Duration: 3 days  
+⏳ Deadline to Join: June 1, 2025
 
 Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
 
-
-🔗 <b>Your Referral Link:</b>
+🔗 <b>Your Referral Link:</b>  
 <a href="${myLink}">${myLink}</a>
     `;
 
@@ -121,14 +120,16 @@ Join our free marathon with daily lessons taught in Uzbek + English on Telegram.
   }
 
   let info = `👥 <b>Your Referrals:</b> ${referralCount}\n`;
-  if (!rewarded) {
-    info += `🎯 <b>Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock access!</b>`;
+
+  if (rewarded) {
+    info += `✅ <b>You've unlocked access to the private group!</b>\n👉 <a href="${GROUP_LINK}">Join the Private Group</a>`;
   } else {
-    info += `✅ <b>You already have access to the private group!</b>\n\nHere is your referral link:\n${myLink}`;
+    info += `⛔ <b>You don’t have access yet.</b>\n🎯 Invite ${needed} more friend${needed === 1 ? '' : 's'} to unlock the group!`;
   }
 
   await ctx.reply(info, { parse_mode: 'HTML' });
 }
+
 
 bot.start(async (ctx) => {
   const userId = String(ctx.from.id);
