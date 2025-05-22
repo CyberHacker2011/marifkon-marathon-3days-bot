@@ -89,7 +89,7 @@ async function migrateUsersAddLanguage() {
 }
 
 // Language messages object
-const MESSAGES = {
+const MESSAGES = { 
   uz: {
     choose_lang: 'Tilni tanlang / Choose your language:',
     joined_channel: `Iltimos, davom ettirish uchun kanalga obuna bo'ling:\n\n📢 https://t.me/${CHANNEL_USERNAME}`,
@@ -305,29 +305,32 @@ bot.start(async (ctx) => {
   const userId = String(ctx.from.id);
   const refId = ctx.startPayload || null;
 
+  // Always create or update user first
+  await addUser(userId, refId, ctx.from);
+
   const user = await users.findOne({ id: userId });
 
-  if (user && user.language) {
-    // Check subscription first
-    const subscribed = await isSubscribed(ctx);
-    if (!subscribed) {
-      const lang = user.language;
-      return ctx.reply(
-        MESSAGES[lang].joined_channel,
-        Markup.inlineKeyboard([
-          [Markup.button.url(MESSAGES[lang].joined_channel_btn, `https://t.me/${CHANNEL_USERNAME}`)],
-          [Markup.button.callback(MESSAGES[lang].check_sub_button, 'check_subscription')],
-        ])
-      );
-    }
-    // Update user with referral info if new
-    await addUser(userId, refId, ctx.from, user.language);
-    await sendReferralMessage(ctx, userId, true);
-  } else {
-    // No user or no language => ask for language selection first
-    await sendLanguageSelection(ctx);
+  // Ask for language selection if not set
+  if (!user.language) {
+    return await sendLanguageSelection(ctx);
   }
+
+  const subscribed = await isSubscribed(ctx);
+  if (!subscribed) {
+    const lang = user.language || 'uz';
+    return ctx.reply(
+      MESSAGES[lang].joined_channel,
+      Markup.inlineKeyboard([
+        [Markup.button.url(MESSAGES[lang].joined_channel_btn, `https://t.me/${CHANNEL_USERNAME}`)],
+        [Markup.button.callback(MESSAGES[lang].check_sub_button, 'check_subscription')],
+      ])
+    );
+  }
+
+  // Now show referral progress
+  await sendReferralMessage(ctx, userId, true);
 });
+
 
 bot.action('check_subscription', async (ctx) => {
   try {
@@ -381,36 +384,75 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
   }
 });
 
-// Daily message sending with cron job (runs daily at 8 AM UTC)
-cron.schedule('0 8 * * *', async () => {
-  try {
-    const allUsers = await users.find().toArray();
+cron.schedule('0 15 * * *', async () => {
+  console.log('⏰ Sending daily messages...');
 
-    for (const user of allUsers) {
+  const allUsers = await users.find({}).toArray();
+  const username = bot.botInfo.username;
+
+  for (const user of allUsers) {
+    try {
       const lang = user.language || 'uz';
-      const referralCount = await users.countDocuments({ referredBy: user.id });
-      const needed = Math.max(0, 3 - referralCount);
-
       const name = user.first_name || '';
 
-      if (referralCount >= 3) {
-        await bot.telegram.sendMessage(
-          user.id,
-          MESSAGES[lang].daily_msg_unlocked(name),
-          { parse_mode: 'HTML' }
-        );
-      } else {
-        await bot.telegram.sendMessage(
-          user.id,
-          MESSAGES[lang].daily_msg_locked(name, needed, referralCount),
-          { parse_mode: 'HTML' }
-        );
-      }
+      const referralCount = await users.countDocuments({ referredBy: user.id });
+      const rewarded = user.rewarded || referralCount >= 3;
+
+      const needed = Math.max(0, 3 - referralCount);
+      const myLink = `https://t.me/${username}?start=${user.id}`;
+
+      const message = rewarded
+        ? MESSAGES[lang].daily_msg_unlocked(name)
+        : MESSAGES[lang].daily_msg_locked(name, needed, referralCount);
+
+      await bot.telegram.sendMessage(user.id, message, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      });
+
+    } catch (err) {
+      console.error(`❌ Failed to send message to user ${user.id}:`, err.message);
     }
-  } catch (err) {
-    console.error('Error sending daily messages:', err);
   }
+
+  console.log('✅ Daily messages sent!');
 });
+
+cron.schedule('0 5 * * *', async () => {
+  console.log('⏰ Sending daily messages...');
+
+  const allUsers = await users.find({}).toArray();
+  const username = bot.botInfo.username;
+
+  for (const user of allUsers) {
+    try {
+      const lang = user.language || 'uz';
+      const name = user.first_name || '';
+
+      const referralCount = await users.countDocuments({ referredBy: user.id });
+      const rewarded = user.rewarded || referralCount >= 3;
+
+      const needed = Math.max(0, 3 - referralCount);
+      const myLink = `https://t.me/${username}?start=${user.id}`;
+
+      const message = rewarded
+        ? MESSAGES[lang].daily_msg_unlocked(name)
+        : MESSAGES[lang].daily_msg_locked(name, needed, referralCount);
+
+      await bot.telegram.sendMessage(user.id, message, {
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+      });
+
+    } catch (err) {
+      console.error(`❌ Failed to send message to user ${user.id}:`, err.message);
+    }
+  }
+
+  console.log('✅ Daily messages sent!');
+});
+
+
 
 // On any message, ensure user is added with default language and check subscription
 bot.on('message', async (ctx) => {
