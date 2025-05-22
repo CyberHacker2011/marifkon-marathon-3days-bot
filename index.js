@@ -368,6 +368,11 @@ bot.command('myreferrals', async (ctx) => {
 
   const count = await users.countDocuments({ referredBy: userId });
   await ctx.reply(MESSAGES[lang].referrals_info(count));
+  if (rewarded) {
+    info += MESSAGES[lang].unlocked_access;
+  } else {
+    info += `${MESSAGES[lang].no_access_yet}\n${MESSAGES[lang].need_more(needed)}`;
+  }
 });
 
 bot.action(/lang_(uz|en)/, async (ctx) => {
