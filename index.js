@@ -411,7 +411,7 @@ bot.command('leaderboard', async (ctx) => {
     let message = lang === 'uz' ? "🏆 Referal bo'yicha TOP 20:\n\n" : "🏆 Top 20 by Referrals:\n\n";
 
     referralCounts.forEach((entry, index) => {
-      const name = entry.user?.first_name || `Ism yo'q`;
+      const name = entry.user?.first_name || `Ism yo'q ${entry.user?.id}`;
       message += `${index + 1}. ${name} - ${entry.count} ta referal\n`;
     });
 
