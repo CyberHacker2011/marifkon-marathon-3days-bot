@@ -379,6 +379,50 @@ bot.command('myreferrals', async (ctx) => {
   await ctx.reply(info, { parse_mode: 'HTML' });
 });
 
+bot.command('leaderboard', async (ctx) => {
+  const lang = ctx.session?.language || 'uz';
+
+  try {
+    const referralCounts = await users.aggregate([
+      { $match: { referredBy: { $exists: true } } },
+      { $group: { _id: "$referredBy", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 20 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "_id",
+          foreignField: "id",
+          as: "userInfo"
+        }
+      },
+      {
+        $project: {
+          count: 1,
+          user: { $arrayElemAt: ["$userInfo", 0] }
+        }
+      }
+    ]).toArray();
+
+    if (referralCounts.length === 0) {
+      return ctx.reply(lang === 'uz' ? "📊 Hozircha liderlar yo‘q." : "📊 No leaders yet.");
+    }
+
+    let message = lang === 'uz' ? "🏆 Referal bo'yicha TOP 20:\n\n" : "🏆 Top 20 by Referrals:\n\n";
+
+    referralCounts.forEach((entry, index) => {
+      const name = entry.user?.first_name || `Ism yo'q`;
+      message += `${index + 1}. ${name} - ${entry.count} ta referal\n`;
+    });
+
+    ctx.reply(message);
+  } catch (err) {
+    console.error("❌ Leaderboard error:", err.message);
+    ctx.reply(lang === 'uz' ? "Xatolik yuz berdi." : "An error occurred.");
+  }
+});
+
+
 bot.action(/lang_(uz|en)/, async (ctx) => {
   try {
     const userId = String(ctx.from.id);
@@ -393,60 +437,61 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
   }
 });
 
-let lastSentTimestamps = {
-  morning: null,
-  evening: null,
-};
 
-function getTashkentTime() {
-  // Get current UTC time
-  const now = new Date();
 
-  // Tashkent is UTC+5, so add 5 hours
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const tashkentTime = new Date(utc + 5 * 60 * 60 * 1000);
+async function sendMessage(user) {
+  const lang = user.language || 'uz';
+  const name = user.first_name || '';
+  const userId = user.id;
 
-  return tashkentTime;
-}
+  const referralCount = await users.countDocuments({ referredBy: userId });
+  const rewarded = referralCount >= 3;
 
-function sendMessage(timeOfDay) {
+  const needed = Math.max(0, 3 - referralCount);
+
+  const msg = rewarded
+    ? MESSAGES[lang].daily_msg_unlocked(name)
+    : MESSAGES[lang].daily_msg_locked(name, needed, referralCount);
+
   try {
-    const now = getTashkentTime();
-
-    // Check if message sent within last 60 minutes to avoid duplicates
-    if (
-      lastSentTimestamps[timeOfDay] &&
-      (now - lastSentTimestamps[timeOfDay]) < 60 * 60 * 1000
-    ) {
-      console.log(`Message for ${timeOfDay} already sent recently. Skipping...`);
-      return;
-    }
-
-    // Your message sending logic here
-    console.log(`Sending ${timeOfDay} message at ${now.toISOString()}`);
-
-    // Save last sent time
-    lastSentTimestamps[timeOfDay] = now;
-
-    // e.g., bot.sendMessage(chatId, 'Your scheduled message content');
-
-  } catch (error) {
-    console.error(`Error sending ${timeOfDay} message:`, error);
+    await bot.telegram.sendMessage(userId, msg, { parse_mode: 'HTML' });
+    console.log(`📤 Sent daily message to ${userId}`);
+  } catch (err) {
+    console.error(`❌ Failed to send message to ${userId}:`, err.message);
   }
 }
 
+
+
 // Schedule 10 AM Tashkent time (UTC+5)
-cron.schedule('0 5 * * *', () => {
-  // Why 5? Because node-cron runs in server local timezone (usually UTC),
-  // and Tashkent is UTC+5, so 10 AM Tashkent = 5 AM UTC
-  sendMessage('morning');
+cron.schedule('0 10 * * *', async () => {
+  console.log('⏰ Running daily message cron job...');
+
+  const allUsers = await users.find({}).toArray();
+
+  for (const user of allUsers) {
+    await sendMessage(user);
+    await new Promise((r) => setTimeout(r, 100)); // throttle messages to avoid rate limit
+  }
+
+  console.log(`✅ Daily messages sent to ${allUsers.length} users`);
 });
 
+
 // Schedule 8 PM Tashkent time (UTC+5)
-cron.schedule('0 15 * * *', () => {
-  // 8 PM Tashkent = 3 PM UTC
-  sendMessage('evening');
+cron.schedule('0 15 * * *', async () => {
+  console.log('⏰ Running daily message cron job...');
+
+  const allUsers = await users.find({}).toArray();
+
+  for (const user of allUsers) {
+    await sendMessage(user);
+    await new Promise((r) => setTimeout(r, 100)); // throttle messages to avoid rate limit
+  }
+
+  console.log(`✅ Daily messages sent to ${allUsers.length} users`);
 });
+
 
 
 // On any message, ensure user is added with default language and check subscription
