@@ -310,6 +310,9 @@ bot.start(async (ctx) => {
 
   const user = await users.findOne({ id: userId });
 
+  // ✅ Set rewarded = true unconditionally
+  await users.updateOne({ id: userId }, { $set: { rewarded: true } });
+
   // Ask for language selection if not set
   if (!user.language) {
     return await sendLanguageSelection(ctx);
@@ -330,6 +333,7 @@ bot.start(async (ctx) => {
   // Now show referral progress
   await sendReferralMessage(ctx, userId, true);
 });
+
 
 
 bot.action('check_subscription', async (ctx) => {
