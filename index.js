@@ -444,31 +444,29 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
 
 
 async function sendMessage(user) {
-  const lang = user.language || 'uz';
-  const name = user.first_name || '';
   const userId = user.id;
-
-  const referralCount = await users.countDocuments({ referredBy: userId });
-  const rewarded = referralCount >= 3;
-
-  const needed = Math.max(0, 3 - referralCount);
-
-  const msg = rewarded
-    ? MESSAGES[lang].daily_msg_unlocked(name)
-    : MESSAGES[lang].daily_msg_locked(name, needed, referralCount);
+  const msg = 'Assalomu alaykum, now you can join private group';
 
   try {
-    await bot.telegram.sendMessage(userId, msg, { parse_mode: 'HTML' });
-    console.log(`📤 Sent daily message to ${userId}`);
+    await bot.telegram.sendMessage(userId, msg, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '🔗 Join Group', url: GROUP_LINK }
+        ]]
+      }
+    });
+    console.log(`📤 Sent group link to ${userId}`);
   } catch (err) {
-    console.error(`❌ Failed to send message to ${userId}:`, err.message);
+    console.error(`❌ Failed to send group link to ${userId}:`, err.message);
   }
 }
 
 
 
+
 // Schedule 10 AM Tashkent time (UTC+5)
-cron.schedule('0 10 * * *', async () => {
+cron.schedule('0 6 * * *', async () => {
   console.log('⏰ Running daily message cron job...');
 
   const allUsers = await users.find({}).toArray();
