@@ -445,7 +445,7 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
 
 async function sendMessage(user) {
   const userId = user.id;
-  const msg = 'Assalomu alaykum, now you can join private group';
+  const msg = `Assalomu alaykum, now you can join private group and channel: t.me/${CHANNEL_USERNAME}:`;
 
   try {
     await bot.telegram.sendMessage(userId, msg, {
