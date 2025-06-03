@@ -445,17 +445,19 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
 
 async function sendMessage(user) {
   const userId = user.id;
-  const msg = `Assalomu alaykum, now you can join to our channel: t.me/${CHANNEL_USERNAME}:`;
+  const msg = `Assalomu alaykum, now you can join to our channel: t.me/${CHANNEL_USERNAME}:
+      🔗 Register to the frontend courses (only 230,000UZS): https://forms.gle/BZriggTEUSjNyATm6
+      🔗 Register to the compatitive programming courses (only 210,000UZS): https://forms.gle/pP1RsXmXpz5w6Sqc8
+      🔗 Register to the English beginner(a1-b2) course (only 147,000UZS) : https://forms.gle/F8ViJUYsG2zWjrVRA
+      🔗 Register to the Mathematics course (only 199,000UZS): https://forms.gle/jkrqEzTbFm5J8rUP6
+      `;
 
   try {
     await bot.telegram.sendMessage(userId, msg, {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
-          { text: '🔗 Register to the frontend courses (only 230,000UZS)', url: 'https://forms.gle/BZriggTEUSjNyATm6' }
-        ]],
-        inline_keyboard: [[
-          { text: '🔗 Register to the compatitive programming courses (onlny 210,000UZS)', url: 'https://forms.gle/pP1RsXmXpz5w6Sqc8' }
+          { text: '🔗 Channel', url: 't.me/marifkon' }
         ]]
       }
     });
