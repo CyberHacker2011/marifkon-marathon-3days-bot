@@ -445,14 +445,17 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
 
 async function sendMessage(user) {
   const userId = user.id;
-  const msg = `Assalomu alaykum, now you can join private group and channel: t.me/${CHANNEL_USERNAME}:`;
+  const msg = `Assalomu alaykum, now you can join to our channel: t.me/${CHANNEL_USERNAME}:`;
 
   try {
     await bot.telegram.sendMessage(userId, msg, {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
-          { text: '🔗 Join Group', url: GROUP_LINK }
+          { text: '🔗 Register to the frontend courses (only 230,000UZS)', url: 'https://forms.gle/BZriggTEUSjNyATm6' }
+        ]],
+        inline_keyboard: [[
+          { text: '🔗 Register to the compatitive programming courses (onlny 210,000UZS)', url: 'https://forms.gle/pP1RsXmXpz5w6Sqc8' }
         ]]
       }
     });
