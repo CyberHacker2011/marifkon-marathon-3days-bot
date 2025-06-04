@@ -445,11 +445,12 @@ bot.action(/lang_(uz|en)/, async (ctx) => {
 
 async function sendMessage(user) {
   const userId = user.id;
-  const msg = `Assalomu alaykum, now you can join to our channel: t.me/${CHANNEL_USERNAME}:
-      🔗 Register to the frontend courses (only 230,000UZS): https://forms.gle/BZriggTEUSjNyATm6
-      🔗 Register to the compatitive programming courses (only 210,000UZS): https://forms.gle/pP1RsXmXpz5w6Sqc8
-      🔗 Register to the English beginner(a1-b2) course (only 147,000UZS) : https://forms.gle/F8ViJUYsG2zWjrVRA
-      🔗 Register to the Mathematics course (only 199,000UZS): https://forms.gle/jkrqEzTbFm5J8rUP6
+  const msg = `🔥We are making the discounts for you. Now you can buy our courses for lesser prices!
+              
+              ⏱️Time is running don't miss your chance:
+              https://forms.gle/6CKE766ERMqoJqvx7
+
+              And don't forget to invite your friends for better studies!
       `;
 
   try {
@@ -457,7 +458,7 @@ async function sendMessage(user) {
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
-          { text: '🔗 Channel', url: 't.me/marifkon' }
+          { text: '🔗 Join the channel', url: 't.me/marifkon' }
         ]]
       }
     });
